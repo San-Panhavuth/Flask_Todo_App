@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Todo List App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #todo-form {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        #todo-form input {
+            flex-grow: 1;
+            margin-right: 10px;
+            padding: 5px;
+        }
+        #todo-list {
+            list-style-type: none;
+            padding: 0;
+        }
+        .todo-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .todo-item.completed {
+            text-decoration: line-through;
+            color: #888;
+        }
+        .todo-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .todo-actions button {
+            cursor: pointer;
+        }
+        #edit-modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 500px;
+        }
+        .close-modal {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close-modal:hover {
+            color: black;
+        }
+    </style>
+</head>
+<body>
+    <h1>Todo List</h1>
+    
+    <form id="todo-form">
+        <input type="text" id="todo-title" placeholder="Enter todo title" required>
+        <input type="text" id="todo-description" placeholder="Description (optional)">
+        <button type="submit">Add Todo</button>
+    </form>
+
+    <ul id="todo-list"></ul>
+
+    <!-- Edit Modal -->
+    <div id="edit-modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2>Edit Todo</h2>
+            <form id="edit-form">
+                <input type="text" id="edit-title" required>
+                <input type="text" id="edit-description">
+                <button type="submit">Save Changes</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000/todos';
+        const todoForm = document.getElementById('todo-form');
+        const todoList = document.getElementById('todo-list');
+        const todoTitleInput = document.getElementById('todo-title');
+        const todoDescriptionInput = document.getElementById('todo-description');
+
+        // Edit Modal Elements
+        const editModal = document.getElementById('edit-modal');
+        const closeModalBtn = document.querySelector('.close-modal');
+        const editForm = document.getElementById('edit-form');
+        const editTitleInput = document.getElementById('edit-title');
+        const editDescriptionInput = document.getElementById('edit-description');
+
+        let currentEditTodoId = null;
+
+        // Fetch todos with error handling and auto-retry
+        async function fetchTodos(retries = 3) {
+            try {
+                const response = await fetch(API_URL);
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                const todos = await response.json();
+                renderTodos(todos);
+            } catch (error) {
+                console.error('Error fetching todos:', error);
+                if (retries > 0) {
+                    console.log(`Retrying... (${retries} attempts left)`);
+                    setTimeout(() => fetchTodos(retries - 1), 1000);
+                }
+            }
+        }
+
+        // Render todos with edit functionality
+        function renderTodos(todos) {
+            todoList.innerHTML = '';
+            todos.forEach(todo => {
+                const li = document.createElement('li');
+                li.classList.add('todo-item');
+                if (todo.completed) {
+                    li.classList.add('completed');
+                }
+
+                li.innerHTML = `
+                    <span>${todo.title} ${todo.description ? `- ${todo.description}` : ''}</span>
+                    <div class="todo-actions">
+                        <button onclick="toggleTodo('${todo.id}', ${todo.completed})">
+                            ${todo.completed ? 'Undo' : 'Complete'}
+                        </button>
+                        <button onclick="openEditModal('${todo.id}', '${todo.title}', '${todo.description}')">Edit</button>
+                        <button onclick="deleteTodo('${todo.id}')">Delete</button>
+                    </div>
+                `;
+
+                todoList.appendChild(li);
+            });
+        }
+
+        // Add todo with error handling
+        todoForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        title: todoTitleInput.value,
+                        description: todoDescriptionInput.value
+                    })
+                });
+
+                if (response.ok) {
+                    todoTitleInput.value = '';
+                    todoDescriptionInput.value = '';
+                    fetchTodos();
+                } else {
+                    const errorData = await response.json();
+                    alert(`Error adding todo: ${errorData.error}`);
+                }
+            } catch (error) {
+                console.error('Error adding todo:', error);
+                alert('Failed to add todo. Please try again.');
+            }
+        });
+
+        // Open edit modal
+        function openEditModal(id, title, description) {
+            currentEditTodoId = id;
+            editTitleInput.value = title;
+            editDescriptionInput.value = description || '';
+            editModal.style.display = 'block';
+        }
+
+        // Close edit modal
+        closeModalBtn.onclick = function() {
+            editModal.style.display = 'none';
+        }
+
+        // Handle edit form submission
+        editForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            try {
+                const response = await fetch(`${API_URL}/${currentEditTodoId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        title: editTitleInput.value,
+                        description: editDescriptionInput.value
+                    })
+                });
+
+                if (response.ok) {
+                    editModal.style.display = 'none';
+                    fetchTodos();
+                } else {
+                    const errorData = await response.json();
+                    alert(`Error updating todo: ${errorData.error}`);
+                }
+            } catch (error) {
+                console.error('Error updating todo:', error);
+                alert('Failed to update todo. Please try again.');
+            }
+        });
+
+        // Toggle todo completion
+        async function toggleTodo(id, currentStatus) {
+            try {
+                const response = await fetch(`${API_URL}/${id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        completed: !currentStatus
+                    })
+                });
+
+                if (response.ok) {
+                    fetchTodos();
+                } else {
+                    const errorData = await response.json();
+                    alert(`Error toggling todo: ${errorData.error}`);
+                }
+            } catch (error) {
+                console.error('Error toggling todo:', error);
+                alert('Failed to toggle todo. Please try again.');
+            }
+        }
+
+        // Delete todo
+        async function deleteTodo(id) {
+            try {
+                const response = await fetch(`${API_URL}/${id}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    fetchTodos();
+                } else {
+                    const errorData = await response.json();
+                    alert(`Error deleting todo: ${errorData.error}`);
+                }
+            } catch (error) {
+                console.error('Error deleting todo:', error);
+                alert('Failed to delete todo. Please try again.');
+            }
+        }
+
+        // Initial fetch with auto-retry
+        fetchTodos();
+
+        // Optional: Periodic refresh every 30 seconds
+        setInterval(fetchTodos, 3000);
+    </script>
+</body>
+</html>
